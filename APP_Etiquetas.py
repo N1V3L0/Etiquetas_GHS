@@ -38,14 +38,13 @@ st.markdown(
 
 BASE_DPI = 203
 
-# Rutas locales de fuentes dentro del proyecto
-import os
-
+# =========================================
+# FUENTES LOCALES DEL PROYECTO
+# =========================================
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 FONT_REGULAR_PATH = os.path.join(BASE_DIR, "DejaVuSans.ttf")
 FONT_BOLD_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
-
 
 # =========================================
 # FUNCIONES AUXILIARES
@@ -56,10 +55,6 @@ def mm_to_px(mm: float, dpi: int = 203) -> int:
 
 def scale_value(value, current_dpi, base_dpi=203):
     return int(round(value * current_dpi / base_dpi))
-
-
-def build_text_size(base_size, current_dpi, base_dpi=203, text_scale=1.0):
-    return int(round(base_size * current_dpi / base_dpi * text_scale))
 
 
 def ensure_fonts_exist():
@@ -183,7 +178,7 @@ def export_to_pdf(pil_image: Image.Image, pdf_width_mm: float, pdf_height_mm: fl
     return pdf_buffer
 
 
-def convert_to_monochrome(image: Image.Image, threshold: int = 175, invert: bool = False) -> Image.Image:
+def convert_to_monochrome(image: Image.Image, threshold: int = 180, invert: bool = False) -> Image.Image:
     gray = image.convert("L")
     bw = gray.point(lambda x: 255 if x > threshold else 0, mode="1")
 
@@ -251,23 +246,13 @@ def build_zpl_from_image(
 """
     return zpl
 
-
-def make_preview_image(image: Image.Image, zoom: float = 2.0) -> Image.Image:
-    if zoom <= 1:
-        return image
-
-    new_w = int(image.width * zoom)
-    new_h = int(image.height * zoom)
-    return image.resize((new_w, new_h), Image.LANCZOS)
-
-
 # =========================================
-# VERIFICAR FUENTES
+# VALIDAR FUENTES
 # =========================================
 missing_fonts = ensure_fonts_exist()
 if missing_fonts:
     st.error(
-        "Faltan fuentes TTF en tu proyecto. Crea la carpeta `fonts/` y agrega estos archivos:\n\n"
+        "Faltan fuentes TTF en tu proyecto. Verifica la carpeta fonts/ y estos archivos:\n\n"
         + "\n".join(missing_fonts)
     )
     st.stop()
@@ -279,13 +264,13 @@ with st.sidebar:
     st.header("Tamaño de la Etiqueta")
     label_width_mm = st.number_input("Ancho etiqueta (mm)", value=300.0, step=1.0)
     label_height_mm = st.number_input("Alto etiqueta (mm)", value=130.0, step=1.0)
-    dpi = st.selectbox("DPI de trabajo / Impresora", [203, 300], index=1)
+    dpi = st.selectbox("DPI de trabajo / Impresora", [203, 300], index=0)
 
     st.header("Datos del Producto")
     codigo_principal = st.text_input("Clave GM", value="G10Z-416:FJ31")
     producto = st.text_input("Nombre Producto", value="BASE ROJO LACA:FJ31")
     lote = st.text_input("Lote", value="3DGLUB0D2")
-    fecha = st.text_input("Fecha[DD/MM/AA]", value="26-Feb-2026")
+    fecha = st.text_input("Fecha [DD/MM/AA]", value="26-Feb-2026")
     neto = st.text_input("Peso Neto [Kg]", value="17.00 KG")
     bruto = st.text_input("Peso Bruto [Kg]", value="18.8 KG")
     numero_articulo = st.text_input("Número del Artículo", value="90337725")
@@ -302,15 +287,9 @@ with st.sidebar:
         ["0°", "90° izquierda", "90° derecha", "180°"]
     )
 
-    st.header("Ajuste de texto")
-    text_scale = st.slider("Escala general del texto", min_value=1.0, max_value=3.0, value=2.2, step=0.05)
-    text_stroke = st.slider("Grosor de texto", min_value=0, max_value=4, value=1, step=1)
-
     st.header("Conversión a ZPL")
-    threshold = st.slider("Umbral blanco/negro", min_value=120, max_value=220, value=175)
-
-    st.header("Vista previa web")
-    preview_zoom = st.slider("Zoom de vista previa", min_value=1.0, max_value=5.0, value=2.5, step=0.1)
+    threshold = st.slider("Umbral blanco/negro", min_value=50, max_value=250, value=180)
+    invert_colors = st.checkbox("Invertir colores", value=False)
 
 # =========================================
 # CARGA DE PLANTILLA
@@ -345,11 +324,11 @@ except Exception as e:
 label = template.copy()
 
 # =========================================
-# TAMAÑOS DE TEXTO
+# FUENTES ORIGINALES
 # =========================================
-size_big = build_text_size(53, dpi, BASE_DPI, text_scale=text_scale)
-size_mid = build_text_size(35, dpi, BASE_DPI, text_scale=text_scale)
-size_tiny = build_text_size(23, dpi, BASE_DPI, text_scale=text_scale)
+size_big = scale_value(53, dpi, BASE_DPI)
+size_mid = scale_value(35, dpi, BASE_DPI)
+size_tiny = scale_value(23, dpi, BASE_DPI)
 
 font_big_bold = load_font(size_big, bold=True)
 font_mid_bold = load_font(size_mid, bold=True)
@@ -397,9 +376,29 @@ h_bar_dest = scale_value(119, dpi, BASE_DPI)
 # =========================================
 # GENERAR CÓDIGOS DE BARRAS
 # =========================================
-barcode_top = generate_barcode(lote, module_width=0.22, module_height=38, font_size=10, text_distance=2)
-barcode_side = generate_barcode(neto, module_width=0.22, module_height=28, font_size=10, text_distance=2)
-barcode_dest = generate_barcode(numero_articulo, module_width=0.22, module_height=28, font_size=10, text_distance=2)
+barcode_top = generate_barcode(
+    lote,
+    module_width=0.22,
+    module_height=38,
+    font_size=10,
+    text_distance=2,
+)
+
+barcode_side = generate_barcode(
+    neto,
+    module_width=0.22,
+    module_height=28,
+    font_size=10,
+    text_distance=2,
+)
+
+barcode_dest = generate_barcode(
+    numero_articulo,
+    module_width=0.22,
+    module_height=28,
+    font_size=10,
+    text_distance=2,
+)
 
 # =========================================
 # PEGAR CÓDIGOS DE BARRAS
@@ -411,15 +410,15 @@ label = paste_barcode(label, barcode_dest, x_bar_dest, y_bar_dest, w_bar_dest, h
 # =========================================
 # DIBUJO DE TEXTO
 # =========================================
-label = draw_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), font_big_bold, stroke_width=text_stroke)
-label = draw_text(label, producto, (x_producto, y_producto), font_big_bold, stroke_width=text_stroke)
+label = draw_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), font_big_bold)
+label = draw_text(label, producto, (x_producto, y_producto), font_big_bold)
 
-label = draw_text(label, lote, (x_lote, y_lote), font_mid_bold, stroke_width=text_stroke)
-label = draw_text(label, fecha, (x_fecha, y_fecha), font_mid_bold, stroke_width=text_stroke)
-label = draw_text(label, neto, (x_neto, y_neto), font_mid_bold, stroke_width=text_stroke)
-label = draw_text(label, bruto, (x_bruto, y_bruto), font_mid_bold, stroke_width=text_stroke)
+label = draw_text(label, lote, (x_lote, y_lote), font_mid_bold)
+label = draw_text(label, fecha, (x_fecha, y_fecha), font_mid_bold)
+label = draw_text(label, neto, (x_neto, y_neto), font_mid_bold)
+label = draw_text(label, bruto, (x_bruto, y_bruto), font_mid_bold)
 
-label = draw_multiline(label, destino, (x_destino, y_destino), font_tiny, spacing=5, stroke_width=0)
+label = draw_multiline(label, destino, (x_destino, y_destino), font_tiny, spacing=5)
 
 # =========================================
 # ROTACIÓN FINAL
@@ -432,25 +431,24 @@ elif rotation_option == "180°":
     label = label.rotate(180, expand=True)
 
 # =========================================
-# VISTA PREVIA
+# VISTA PREVIA SIMPLE
 # =========================================
 st.subheader("Vista previa de la etiqueta")
-st.write(f"Resolución real de la etiqueta: {label.width} × {label.height} px")
-
-preview_label = make_preview_image(label, zoom=preview_zoom)
-st.image(preview_label, caption=f"Vista previa ampliada x{preview_zoom:.1f}", use_container_width=False)
+st.image(label, use_container_width=True)
 
 # =========================================
 # CONVERSIÓN A ZPL
 # =========================================
-bw_img = convert_to_monochrome(label, threshold=threshold, invert=False)
-
-st.subheader("Vista previa 1-bit para Zebra")
-preview_bw = make_preview_image(bw_img.convert("RGB"), zoom=preview_zoom)
-st.image(preview_bw, caption=f"Vista previa Zebra ampliada x{preview_zoom:.1f}", use_container_width=False)
+bw_img = convert_to_monochrome(label, threshold=threshold, invert=invert_colors)
 
 final_width_px, final_height_px = bw_img.size
-zpl_code = build_zpl_from_image(bw_img, label_width_px=final_width_px, label_height_px=final_height_px)
+zpl_code = build_zpl_from_image(
+    bw_img,
+    label_width_px=final_width_px,
+    label_height_px=final_height_px,
+    offset_x=0,
+    offset_y=0
+)
 
 # =========================================
 # DESCARGAS
@@ -465,17 +463,32 @@ zpl_bytes = zpl_code.encode("ascii", errors="ignore")
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.download_button("📷 Descargar PNG", data=png_buffer, file_name="Etiqueta_Final.png", mime="image/png")
+    st.download_button(
+        "📷 Descargar PNG",
+        data=png_buffer,
+        file_name="Etiqueta_Final.png",
+        mime="image/png"
+    )
 
 with col2:
-    st.download_button("📑 Descargar PDF", data=pdf_buffer, file_name="Etiqueta_Final.pdf", mime="application/pdf")
+    st.download_button(
+        "📑 Descargar PDF",
+        data=pdf_buffer,
+        file_name="Etiqueta_Final.pdf",
+        mime="application/pdf"
+    )
 
 with col3:
-    st.download_button("🖨️ Descargar ZPL", data=zpl_bytes, file_name="Etiqueta_Final.zpl", mime="application/octet-stream")
+    st.download_button(
+        "🖨️ Descargar ZPL",
+        data=zpl_bytes,
+        file_name="Etiqueta_Final.zpl",
+        mime="application/octet-stream"
+    )
 
 st.subheader("Datos técnicos")
 st.write(f"**Tamaño etiqueta:** {label_width_mm} mm × {label_height_mm} mm")
 st.write(f"**Resolución de Impresión:** {dpi} DPI")
 st.write(f"**Tamaño final en dots:** {final_width_px} × {final_height_px}")
-st.write(f"**Escala manual de texto:** {text_scale:.2f}x")
+st.write(f"**Rotación aplicada:** {rotation_option}")
 st.write(f"**Tamaño ZPL ASCII:** {len(zpl_bytes) / 1024:.2f} KB")
