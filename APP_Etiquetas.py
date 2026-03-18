@@ -44,8 +44,21 @@ BASE_DPI = 203
 def mm_to_px(mm: float, dpi: int = 203) -> int:
     return int(round((mm / 25.4) * dpi))
 
+
 def scale_value(value, current_dpi, base_dpi=203):
     return int(round(value * current_dpi / base_dpi))
+
+
+def scale_font_value(value, current_dpi, base_dpi=203, extra_factor_300=1.28):
+    """
+    Escala fuentes con un refuerzo extra para 300 DPI,
+    porque el texto rasterizado tiende a verse más pequeño al binarizarse.
+    """
+    scaled = value * current_dpi / base_dpi
+    if current_dpi >= 300:
+        scaled *= extra_factor_300
+    return int(round(scaled))
+
 
 def load_font(size: int, bold: bool = False):
     candidates = []
@@ -68,32 +81,56 @@ def load_font(size: int, bold: bool = False):
 
     return ImageFont.load_default()
 
-def draw_rotated_text(base_image, text, xy, angle, font, fill="black"):
+
+def draw_rotated_text(base_image, text, xy, angle, font, fill="black", stroke_width=0, stroke_fill="black"):
     if not text:
         return base_image
 
     dummy = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
     dummy_draw = ImageDraw.Draw(dummy)
-    bbox = dummy_draw.textbbox((0, 0), text, font=font)
+    bbox = dummy_draw.textbbox(
+        (0, 0),
+        text,
+        font=font,
+        stroke_width=stroke_width
+    )
 
     w = max(1, bbox[2] - bbox[0])
     h = max(1, bbox[3] - bbox[1])
 
-    txt_img = Image.new("RGBA", (w + 20, h + 20), (255, 255, 255, 0))
+    txt_img = Image.new("RGBA", (w + 30, h + 30), (255, 255, 255, 0))
     txt_draw = ImageDraw.Draw(txt_img)
-    txt_draw.text((10, 10), text, font=font, fill=fill)
+    txt_draw.text(
+        (15, 15),
+        text,
+        font=font,
+        fill=fill,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill
+    )
 
     rotated = txt_img.rotate(angle, expand=True)
     base_image.paste(rotated, xy, rotated)
     return base_image
 
-def draw_multiline(draw, text, xy, font, fill="black", spacing=6):
-    draw.multiline_text(xy, text, font=font, fill=fill, spacing=spacing)
+
+def draw_multiline(draw, text, xy, font, fill="black", spacing=6, stroke_width=0, stroke_fill="black"):
+    draw.multiline_text(
+        xy,
+        text,
+        font=font,
+        fill=fill,
+        spacing=spacing,
+        stroke_width=stroke_width,
+        stroke_fill=stroke_fill
+    )
+
 
 def sanitize_barcode_value(value: str) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
 
 def generate_barcode(
     code_value: str,
@@ -125,6 +162,7 @@ def generate_barcode(
         img = Image.open(filename).convert("RGBA")
         return img.copy()
 
+
 def paste_barcode(base_image, barcode_image, x, y, width=None, height=None, angle=0):
     if barcode_image is None:
         return base_image
@@ -139,6 +177,7 @@ def paste_barcode(base_image, barcode_image, x, y, width=None, height=None, angl
 
     base_image.paste(img, (x, y), img)
     return base_image
+
 
 def export_to_pdf(pil_image: Image.Image, pdf_width_mm: float, pdf_height_mm: float):
     img_buffer = io.BytesIO()
@@ -158,7 +197,11 @@ def export_to_pdf(pil_image: Image.Image, pdf_width_mm: float, pdf_height_mm: fl
     pdf_buffer.seek(0)
     return pdf_buffer
 
-def convert_to_monochrome(image: Image.Image, threshold: int = 180, invert: bool = False) -> Image.Image:
+
+def convert_to_monochrome(image: Image.Image, threshold: int = 165, invert: bool = False) -> Image.Image:
+    """
+    Umbral un poco más bajo para preservar mejor el cuerpo del texto.
+    """
     gray = image.convert("L")
     bw = gray.point(lambda x: 255 if x > threshold else 0, mode="1")
 
@@ -166,6 +209,7 @@ def convert_to_monochrome(image: Image.Image, threshold: int = 180, invert: bool
         bw = ImageOps.invert(bw.convert("L")).convert("1")
 
     return bw
+
 
 def image_to_zpl_graphic_hex(image_bw: Image.Image):
     if image_bw.mode != "1":
@@ -206,6 +250,7 @@ def image_to_zpl_graphic_hex(image_bw: Image.Image):
 
     return total_bytes, bytes_per_row, hex_data
 
+
 def build_zpl_from_image(
     image_bw: Image.Image,
     label_width_px: int,
@@ -225,6 +270,7 @@ def build_zpl_from_image(
 """
     return zpl
 
+
 def make_preview_image(image: Image.Image, zoom: float = 2.0) -> Image.Image:
     if zoom <= 1:
         return image
@@ -233,6 +279,7 @@ def make_preview_image(image: Image.Image, zoom: float = 2.0) -> Image.Image:
     new_h = int(image.height * zoom)
     return image.resize((new_w, new_h), Image.LANCZOS)
 
+
 # =========================================
 # SIDEBAR
 # =========================================
@@ -240,7 +287,7 @@ with st.sidebar:
     st.header("Tamaño de la Etiqueta")
     label_width_mm = st.number_input("Ancho etiqueta (mm)", value=300.0, step=1.0)
     label_height_mm = st.number_input("Alto etiqueta (mm)", value=130.0, step=1.0)
-    dpi = st.selectbox("DPI de trabajo / Impresora", [203, 300], index=0)
+    dpi = st.selectbox("DPI de trabajo / Impresora", [203, 300], index=1)
 
     st.header("Datos del Producto")
     codigo_principal = st.text_input("Clave GM", value="G10Z-416:FJ31")
@@ -263,9 +310,12 @@ with st.sidebar:
         ["0°", "90° izquierda", "90° derecha", "180°"]
     )
 
+    st.header("Texto e impresión")
+    text_boost_300 = st.slider("Refuerzo de texto en 300 DPI", min_value=1.00, max_value=1.60, value=1.28, step=0.01)
+    text_stroke = st.slider("Grosor del texto", min_value=0, max_value=4, value=2, step=1)
+
     st.header("Conversión a ZPL")
-    threshold = st.slider("Umbral blanco/negro", min_value=50, max_value=250, value=180)
-    invert_colors = st.checkbox("Invertir colores", value=False)
+    threshold = st.slider("Umbral blanco/negro", min_value=100, max_value=220, value=165)
 
     st.header("Vista previa web")
     preview_zoom = st.slider("Zoom de vista previa", min_value=1.0, max_value=5.0, value=2.5, step=0.1)
@@ -304,11 +354,11 @@ label = template.copy()
 draw = ImageDraw.Draw(label)
 
 # =========================================
-# FUENTES ESCALABLES
+# FUENTES ESCALABLES CORREGIDAS
 # =========================================
-size_big = scale_value(53, dpi, BASE_DPI)
-size_mid = scale_value(35, dpi, BASE_DPI)
-size_tiny = scale_value(23, dpi, BASE_DPI)
+size_big = scale_font_value(53, dpi, BASE_DPI, extra_factor_300=text_boost_300)
+size_mid = scale_font_value(35, dpi, BASE_DPI, extra_factor_300=text_boost_300)
+size_tiny = scale_font_value(23, dpi, BASE_DPI, extra_factor_300=text_boost_300)
 
 font_big_bold = load_font(size_big, bold=True)
 font_mid_bold = load_font(size_mid, bold=True)
@@ -383,48 +433,22 @@ barcode_dest = generate_barcode(
 # =========================================
 # PEGAR CÓDIGOS DE BARRAS
 # =========================================
-label = paste_barcode(
-    label,
-    barcode_top,
-    x_bar_top,
-    y_bar_top,
-    w_bar_top,
-    h_bar_top,
-    angle=90,
-)
-
-label = paste_barcode(
-    label,
-    barcode_side,
-    x_bar_side,
-    y_bar_side,
-    w_bar_side,
-    h_bar_side,
-    angle=90,
-)
-
-label = paste_barcode(
-    label,
-    barcode_dest,
-    x_bar_dest,
-    y_bar_dest,
-    w_bar_dest,
-    h_bar_dest,
-    angle=0,
-)
+label = paste_barcode(label, barcode_top, x_bar_top, y_bar_top, w_bar_top, h_bar_top, angle=90)
+label = paste_barcode(label, barcode_side, x_bar_side, y_bar_side, w_bar_side, h_bar_side, angle=90)
+label = paste_barcode(label, barcode_dest, x_bar_dest, y_bar_dest, w_bar_dest, h_bar_dest, angle=0)
 
 # =========================================
 # DIBUJO DE TEXTO
 # =========================================
-label = draw_rotated_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), 0, font_big_bold)
-label = draw_rotated_text(label, producto, (x_producto, y_producto), 0, font_big_bold)
+label = draw_rotated_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), 0, font_big_bold, stroke_width=text_stroke)
+label = draw_rotated_text(label, producto, (x_producto, y_producto), 0, font_big_bold, stroke_width=text_stroke)
 
-label = draw_rotated_text(label, lote, (x_lote, y_lote), 0, font_mid_bold)
-label = draw_rotated_text(label, fecha, (x_fecha, y_fecha), 0, font_mid_bold)
-label = draw_rotated_text(label, neto, (x_neto, y_neto), 0, font_mid_bold)
-label = draw_rotated_text(label, bruto, (x_bruto, y_bruto), 0, font_mid_bold)
+label = draw_rotated_text(label, lote, (x_lote, y_lote), 0, font_mid_bold, stroke_width=text_stroke)
+label = draw_rotated_text(label, fecha, (x_fecha, y_fecha), 0, font_mid_bold, stroke_width=text_stroke)
+label = draw_rotated_text(label, neto, (x_neto, y_neto), 0, font_mid_bold, stroke_width=text_stroke)
+label = draw_rotated_text(label, bruto, (x_bruto, y_bruto), 0, font_mid_bold, stroke_width=text_stroke)
 
-draw_multiline(draw, destino, (x_destino, y_destino), font_tiny, fill="black", spacing=5)
+draw_multiline(draw, destino, (x_destino, y_destino), font_tiny, fill="black", spacing=5, stroke_width=1)
 
 # =========================================
 # ROTACIÓN FINAL
@@ -452,7 +476,7 @@ st.image(
 # =========================================
 # CONVERSIÓN A ZPL
 # =========================================
-bw_img = convert_to_monochrome(label, threshold=threshold, invert=invert_colors)
+bw_img = convert_to_monochrome(label, threshold=threshold, invert=False)
 
 st.subheader("Vista previa 1-bit para Zebra")
 preview_bw = make_preview_image(bw_img.convert("RGB"), zoom=preview_zoom)
@@ -480,34 +504,18 @@ label.convert("RGB").save(png_buffer, format="PNG")
 png_buffer.seek(0)
 
 pdf_buffer = export_to_pdf(label, label_width_mm, label_height_mm)
-
 zpl_bytes = zpl_code.encode("ascii", errors="ignore")
 
 col1, col2, col3 = st.columns(3)
 
 with col1:
-    st.download_button(
-        "📷 Descargar PNG",
-        data=png_buffer,
-        file_name="Etiqueta_Final.png",
-        mime="image/png"
-    )
+    st.download_button("📷 Descargar PNG", data=png_buffer, file_name="Etiqueta_Final.png", mime="image/png")
 
 with col2:
-    st.download_button(
-        "📑 Descargar PDF",
-        data=pdf_buffer,
-        file_name="Etiqueta_Final.pdf",
-        mime="application/pdf"
-    )
+    st.download_button("📑 Descargar PDF", data=pdf_buffer, file_name="Etiqueta_Final.pdf", mime="application/pdf")
 
 with col3:
-    st.download_button(
-        "🖨️ Descargar ZPL",
-        data=zpl_bytes,
-        file_name="Etiqueta_Final.zpl",
-        mime="application/octet-stream"
-    )
+    st.download_button("🖨️ Descargar ZPL", data=zpl_bytes, file_name="Etiqueta_Final.zpl", mime="application/octet-stream")
 
 st.subheader("Vista previa del ZPL")
 st.text_area("ZPL generado", zpl_code[:5000], height=300)
