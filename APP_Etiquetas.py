@@ -4,6 +4,7 @@ from barcode import Code128
 from barcode.writer import ImageWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
+from pathlib import Path
 import io
 import os
 import tempfile
@@ -49,37 +50,56 @@ def scale_value(value, current_dpi, base_dpi=203):
     return int(round(value * current_dpi / base_dpi))
 
 
-def scale_font_value(value, current_dpi, base_dpi=203, extra_factor_300=1.28):
+def resolve_font_path(bold: bool = False):
     """
-    Escala fuentes con un refuerzo extra para 300 DPI,
-    porque el texto rasterizado tiende a verse más pequeño al binarizarse.
+    Busca una fuente TrueType real en Windows, Linux o carpeta local ./fonts
     """
-    scaled = value * current_dpi / base_dpi
-    if current_dpi >= 300:
-        scaled *= extra_factor_300
-    return int(round(scaled))
+    local_fonts_dir = Path("fonts")
 
-
-def load_font(size: int, bold: bool = False):
-    candidates = []
     if bold:
         candidates = [
-            "C:/Windows/Fonts/arialbd.ttf",
+            str(local_fonts_dir / "DejaVuSans-Bold.ttf"),
+            str(local_fonts_dir / "Arial-Bold.ttf"),
             "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
+            "C:/Windows/Fonts/arialbd.ttf",
+            "DejaVuSans-Bold.ttf",
         ]
     else:
         candidates = [
-            "C:/Windows/Fonts/arial.ttf",
+            str(local_fonts_dir / "DejaVuSans.ttf"),
+            str(local_fonts_dir / "Arial.ttf"),
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
+            "C:/Windows/Fonts/arial.ttf",
+            "DejaVuSans.ttf",
         ]
 
-    for path in candidates:
+    for candidate in candidates:
         try:
-            return ImageFont.truetype(path, size=size)
+            ImageFont.truetype(candidate, size=20)
+            return candidate
         except Exception:
-            pass
+            continue
 
-    return ImageFont.load_default()
+    return None
+
+
+def load_font(size: int, bold: bool = False):
+    """
+    Carga una fuente TrueType real. Si no encuentra ninguna, lanza error.
+    """
+    font_path = resolve_font_path(bold)
+
+    if font_path is None:
+        raise RuntimeError(
+            "No se encontró una fuente TrueType válida. "
+            "Agrega archivos .ttf en una carpeta llamada 'fonts' "
+            "o verifica las rutas de fuentes del sistema."
+        )
+
+    font = ImageFont.truetype(font_path, size=size)
+    return font, font_path
 
 
 def draw_rotated_text(base_image, text, xy, angle, font, fill="black", stroke_width=0, stroke_fill="black"):
@@ -199,9 +219,6 @@ def export_to_pdf(pil_image: Image.Image, pdf_width_mm: float, pdf_height_mm: fl
 
 
 def convert_to_monochrome(image: Image.Image, threshold: int = 165, invert: bool = False) -> Image.Image:
-    """
-    Umbral un poco más bajo para preservar mejor el cuerpo del texto.
-    """
     gray = image.convert("L")
     bw = gray.point(lambda x: 255 if x > threshold else 0, mode="1")
 
@@ -311,7 +328,6 @@ with st.sidebar:
     )
 
     st.header("Texto e impresión")
-    text_boost_300 = st.slider("Refuerzo de texto en 300 DPI", min_value=1.00, max_value=1.60, value=1.28, step=0.01)
     text_stroke = st.slider("Grosor del texto", min_value=0, max_value=4, value=2, step=1)
 
     st.header("Conversión a ZPL")
@@ -354,15 +370,25 @@ label = template.copy()
 draw = ImageDraw.Draw(label)
 
 # =========================================
-# FUENTES ESCALABLES CORREGIDAS
+# FUENTES ESCALABLES
 # =========================================
-size_big = scale_font_value(53, dpi, BASE_DPI, extra_factor_300=text_boost_300)
-size_mid = scale_font_value(35, dpi, BASE_DPI, extra_factor_300=text_boost_300)
-size_tiny = scale_font_value(23, dpi, BASE_DPI, extra_factor_300=text_boost_300)
+size_big = scale_value(53, dpi, BASE_DPI)
+size_mid = scale_value(35, dpi, BASE_DPI)
+size_tiny = scale_value(23, dpi, BASE_DPI)
 
-font_big_bold = load_font(size_big, bold=True)
-font_mid_bold = load_font(size_mid, bold=True)
-font_tiny = load_font(size_tiny, bold=False)
+try:
+    font_big_bold, font_big_path = load_font(size_big, bold=True)
+    font_mid_bold, font_mid_path = load_font(size_mid, bold=True)
+    font_tiny, font_tiny_path = load_font(size_tiny, bold=False)
+except RuntimeError as e:
+    st.error(str(e))
+    st.stop()
+
+with st.sidebar:
+    st.markdown("### Fuente cargada")
+    st.write(f"Grande: {font_big_path}")
+    st.write(f"Media: {font_mid_path}")
+    st.write(f"Pequeña: {font_tiny_path}")
 
 # =========================================
 # COORDENADAS ESCALABLES
