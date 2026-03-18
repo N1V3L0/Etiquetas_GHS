@@ -303,8 +303,8 @@ draw = ImageDraw.Draw(label)
 # FUENTES ESCALABLES ORIGINALES
 # =========================================
 size_big = scale_value(53, dpi, BASE_DPI)
-size_mid = scale_value(35, dpi, BASE_DPI)
-size_tiny = scale_value(23, dpi, BASE_DPI)
+size_mid = scale_value(31, dpi, BASE_DPI)
+size_tiny = scale_value(20, dpi, BASE_DPI)
 
 font_big_bold = load_font(size_big, bold=True)
 font_mid_bold = load_font(size_mid, bold=True)
