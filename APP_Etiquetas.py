@@ -4,7 +4,6 @@ from barcode import Code128
 from barcode.writer import ImageWriter
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from pathlib import Path
 import io
 import os
 import tempfile
@@ -37,6 +36,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# BASE SOLO PARA COORDENADAS Y BARRAS
 BASE_DPI = 203
 
 # =========================================
@@ -50,100 +50,147 @@ def scale_value(value, current_dpi, base_dpi=203):
     return int(round(value * current_dpi / base_dpi))
 
 
-def resolve_font_path(bold: bool = False):
+def build_text_size(base_size, current_dpi, base_dpi=203, text_scale=1.0):
     """
-    Busca una fuente TrueType real en Windows, Linux o carpeta local ./fonts
+    Escala el tamaño del texto independientemente de las coordenadas.
     """
-    local_fonts_dir = Path("fonts")
-
-    if bold:
-        candidates = [
-            str(local_fonts_dir / "DejaVuSans-Bold.ttf"),
-            str(local_fonts_dir / "Arial-Bold.ttf"),
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-            "C:/Windows/Fonts/arialbd.ttf",
-            "DejaVuSans-Bold.ttf",
-        ]
-    else:
-        candidates = [
-            str(local_fonts_dir / "DejaVuSans.ttf"),
-            str(local_fonts_dir / "Arial.ttf"),
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf",
-            "C:/Windows/Fonts/arial.ttf",
-            "DejaVuSans.ttf",
-        ]
-
-    for candidate in candidates:
-        try:
-            ImageFont.truetype(candidate, size=20)
-            return candidate
-        except Exception:
-            continue
-
-    return None
+    return int(round(base_size * current_dpi / base_dpi * text_scale))
 
 
 def load_font(size: int, bold: bool = False):
+    candidates = []
+    if bold:
+        candidates = [
+            "C:/Windows/Fonts/arialbd.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        ]
+    else:
+        candidates = [
+            "C:/Windows/Fonts/arial.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ]
+
+    for path in candidates:
+        try:
+            return ImageFont.truetype(path, size=size)
+        except Exception:
+            pass
+
+    return ImageFont.load_default()
+
+
+def draw_rotated_text_hq(
+    base_image,
+    text,
+    xy,
+    angle,
+    font_size,
+    bold=True,
+    fill="black",
+    stroke_width=0,
+    stroke_fill="black",
+    render_scale=2
+):
     """
-    Carga una fuente TrueType real. Si no encuentra ninguna, lanza error.
+    Dibuja texto en alta resolución y luego lo reduce antes de pegarlo.
+    Esto mejora nitidez y hace más consistente el cuerpo del texto.
     """
-    font_path = resolve_font_path(bold)
-
-    if font_path is None:
-        raise RuntimeError(
-            "No se encontró una fuente TrueType válida. "
-            "Agrega archivos .ttf en una carpeta llamada 'fonts' "
-            "o verifica las rutas de fuentes del sistema."
-        )
-
-    font = ImageFont.truetype(font_path, size=size)
-    return font, font_path
-
-
-def draw_rotated_text(base_image, text, xy, angle, font, fill="black", stroke_width=0, stroke_fill="black"):
     if not text:
         return base_image
+
+    hi_font = load_font(max(1, int(font_size * render_scale)), bold=bold)
 
     dummy = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
     dummy_draw = ImageDraw.Draw(dummy)
     bbox = dummy_draw.textbbox(
         (0, 0),
         text,
-        font=font,
-        stroke_width=stroke_width
+        font=hi_font,
+        stroke_width=int(stroke_width * render_scale)
     )
 
     w = max(1, bbox[2] - bbox[0])
     h = max(1, bbox[3] - bbox[1])
 
-    txt_img = Image.new("RGBA", (w + 30, h + 30), (255, 255, 255, 0))
+    txt_img = Image.new("RGBA", (w + 40, h + 40), (255, 255, 255, 0))
     txt_draw = ImageDraw.Draw(txt_img)
     txt_draw.text(
-        (15, 15),
+        (20, 20),
         text,
-        font=font,
+        font=hi_font,
         fill=fill,
-        stroke_width=stroke_width,
+        stroke_width=int(stroke_width * render_scale),
         stroke_fill=stroke_fill
     )
+
+    if render_scale > 1:
+        txt_img = txt_img.resize(
+            (max(1, txt_img.width // render_scale), max(1, txt_img.height // render_scale)),
+            Image.LANCZOS
+        )
 
     rotated = txt_img.rotate(angle, expand=True)
     base_image.paste(rotated, xy, rotated)
     return base_image
 
 
-def draw_multiline(draw, text, xy, font, fill="black", spacing=6, stroke_width=0, stroke_fill="black"):
-    draw.multiline_text(
-        xy,
+def draw_multiline_hq(
+    base_image,
+    text,
+    xy,
+    font_size,
+    bold=False,
+    fill="black",
+    spacing=6,
+    stroke_width=0,
+    stroke_fill="black",
+    render_scale=2
+):
+    if not text:
+        return base_image
+
+    hi_font = load_font(max(1, int(font_size * render_scale)), bold=bold)
+
+    lines = text.split("\n")
+    dummy = Image.new("RGBA", (10, 10), (255, 255, 255, 0))
+    dummy_draw = ImageDraw.Draw(dummy)
+
+    max_w = 1
+    total_h = 0
+    scaled_spacing = int(spacing * render_scale)
+
+    for line in lines:
+        bbox = dummy_draw.textbbox(
+            (0, 0),
+            line,
+            font=hi_font,
+            stroke_width=int(stroke_width * render_scale)
+        )
+        w = max(1, bbox[2] - bbox[0])
+        h = max(1, bbox[3] - bbox[1])
+        max_w = max(max_w, w)
+        total_h += h + scaled_spacing
+
+    txt_img = Image.new("RGBA", (max_w + 40, total_h + 40), (255, 255, 255, 0))
+    txt_draw = ImageDraw.Draw(txt_img)
+    txt_draw.multiline_text(
+        (20, 20),
         text,
-        font=font,
+        font=hi_font,
         fill=fill,
-        spacing=spacing,
-        stroke_width=stroke_width,
+        spacing=scaled_spacing,
+        stroke_width=int(stroke_width * render_scale),
         stroke_fill=stroke_fill
     )
+
+    if render_scale > 1:
+        txt_img = txt_img.resize(
+            (max(1, txt_img.width // render_scale), max(1, txt_img.height // render_scale)),
+            Image.LANCZOS
+        )
+
+    base_image.paste(txt_img, xy, txt_img)
+    return base_image
 
 
 def sanitize_barcode_value(value: str) -> str:
@@ -218,7 +265,7 @@ def export_to_pdf(pil_image: Image.Image, pdf_width_mm: float, pdf_height_mm: fl
     return pdf_buffer
 
 
-def convert_to_monochrome(image: Image.Image, threshold: int = 165, invert: bool = False) -> Image.Image:
+def convert_to_monochrome(image: Image.Image, threshold: int = 180, invert: bool = False) -> Image.Image:
     gray = image.convert("L")
     bw = gray.point(lambda x: 255 if x > threshold else 0, mode="1")
 
@@ -327,11 +374,13 @@ with st.sidebar:
         ["0°", "90° izquierda", "90° derecha", "180°"]
     )
 
-    st.header("Texto e impresión")
-    text_stroke = st.slider("Grosor del texto", min_value=0, max_value=4, value=2, step=1)
+    st.header("Ajuste de texto")
+    text_scale = st.slider("Escala general del texto", min_value=1.0, max_value=3.0, value=1.75, step=0.05)
+    text_render_scale = st.slider("Calidad de render del texto", min_value=1, max_value=4, value=2, step=1)
+    text_stroke = st.slider("Grosor de texto", min_value=0, max_value=4, value=1, step=1)
 
     st.header("Conversión a ZPL")
-    threshold = st.slider("Umbral blanco/negro", min_value=100, max_value=220, value=165)
+    threshold = st.slider("Umbral blanco/negro", min_value=120, max_value=220, value=175)
 
     st.header("Vista previa web")
     preview_zoom = st.slider("Zoom de vista previa", min_value=1.0, max_value=5.0, value=2.5, step=0.1)
@@ -367,28 +416,14 @@ except Exception as e:
     st.stop()
 
 label = template.copy()
-draw = ImageDraw.Draw(label)
 
 # =========================================
-# FUENTES ESCALABLES
+# TAMAÑOS DE TEXTO
+# OJO: ya no dependen "solo" de BASE_DPI
 # =========================================
-size_big = scale_value(53, dpi, BASE_DPI)
-size_mid = scale_value(35, dpi, BASE_DPI)
-size_tiny = scale_value(23, dpi, BASE_DPI)
-
-try:
-    font_big_bold, font_big_path = load_font(size_big, bold=True)
-    font_mid_bold, font_mid_path = load_font(size_mid, bold=True)
-    font_tiny, font_tiny_path = load_font(size_tiny, bold=False)
-except RuntimeError as e:
-    st.error(str(e))
-    st.stop()
-
-with st.sidebar:
-    st.markdown("### Fuente cargada")
-    st.write(f"Grande: {font_big_path}")
-    st.write(f"Media: {font_mid_path}")
-    st.write(f"Pequeña: {font_tiny_path}")
+size_big = build_text_size(53, dpi, BASE_DPI, text_scale=text_scale)
+size_mid = build_text_size(35, dpi, BASE_DPI, text_scale=text_scale)
+size_tiny = build_text_size(23, dpi, BASE_DPI, text_scale=text_scale)
 
 # =========================================
 # COORDENADAS ESCALABLES
@@ -414,6 +449,7 @@ y_bruto = scale_value(735, dpi, BASE_DPI)
 x_destino = scale_value(672, dpi, BASE_DPI)
 y_destino = scale_value(660, dpi, BASE_DPI)
 
+# Barras
 x_bar_top = scale_value(19, dpi, BASE_DPI)
 y_bar_top = scale_value(482, dpi, BASE_DPI)
 w_bar_top = scale_value(419, dpi, BASE_DPI)
@@ -466,15 +502,37 @@ label = paste_barcode(label, barcode_dest, x_bar_dest, y_bar_dest, w_bar_dest, h
 # =========================================
 # DIBUJO DE TEXTO
 # =========================================
-label = draw_rotated_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), 0, font_big_bold, stroke_width=text_stroke)
-label = draw_rotated_text(label, producto, (x_producto, y_producto), 0, font_big_bold, stroke_width=text_stroke)
+label = draw_rotated_text_hq(
+    label, codigo_principal, (x_codigo_principal, y_codigo_principal), 0,
+    font_size=size_big, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
+label = draw_rotated_text_hq(
+    label, producto, (x_producto, y_producto), 0,
+    font_size=size_big, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
 
-label = draw_rotated_text(label, lote, (x_lote, y_lote), 0, font_mid_bold, stroke_width=text_stroke)
-label = draw_rotated_text(label, fecha, (x_fecha, y_fecha), 0, font_mid_bold, stroke_width=text_stroke)
-label = draw_rotated_text(label, neto, (x_neto, y_neto), 0, font_mid_bold, stroke_width=text_stroke)
-label = draw_rotated_text(label, bruto, (x_bruto, y_bruto), 0, font_mid_bold, stroke_width=text_stroke)
+label = draw_rotated_text_hq(
+    label, lote, (x_lote, y_lote), 0,
+    font_size=size_mid, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
+label = draw_rotated_text_hq(
+    label, fecha, (x_fecha, y_fecha), 0,
+    font_size=size_mid, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
+label = draw_rotated_text_hq(
+    label, neto, (x_neto, y_neto), 0,
+    font_size=size_mid, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
+label = draw_rotated_text_hq(
+    label, bruto, (x_bruto, y_bruto), 0,
+    font_size=size_mid, bold=True, stroke_width=text_stroke, render_scale=text_render_scale
+)
 
-draw_multiline(draw, destino, (x_destino, y_destino), font_tiny, fill="black", spacing=5, stroke_width=1)
+label = draw_multiline_hq(
+    label, destino, (x_destino, y_destino),
+    font_size=size_tiny, bold=False, spacing=5,
+    stroke_width=0, render_scale=text_render_scale
+)
 
 # =========================================
 # ROTACIÓN FINAL
@@ -551,5 +609,6 @@ st.write(f"**Tamaño etiqueta:** {label_width_mm} mm × {label_height_mm} mm")
 st.write(f"**Resolución de Impresión:** {dpi} DPI")
 st.write(f"**Tamaño final en dots:** {final_width_px} × {final_height_px}")
 st.write(f"**Rotación aplicada:** {rotation_option}")
-st.write(f"**Escalado respecto a {BASE_DPI} DPI:** {dpi / BASE_DPI:.4f}x")
+st.write(f"**Escalado de coordenadas respecto a {BASE_DPI} DPI:** {dpi / BASE_DPI:.4f}x")
+st.write(f"**Escala manual de texto:** {text_scale:.2f}x")
 st.write(f"**Tamaño ZPL ASCII:** {len(zpl_bytes) / 1024:.2f} KB")
