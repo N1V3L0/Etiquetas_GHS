@@ -39,6 +39,7 @@ st.markdown(
 BASE_DPI = 203
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Fuentes locales dentro del proyecto
 FONT_REGULAR_PATH = os.path.join(BASE_DIR, "DejaVuSans.ttf")
 FONT_BOLD_PATH = os.path.join(BASE_DIR, "DejaVuSans-Bold.ttf")
 
@@ -220,20 +221,13 @@ def build_zpl_from_image(
 """
     return zpl
 
-def make_preview_image(image: Image.Image, zoom: float = 2.0) -> Image.Image:
-    if zoom <= 1:
-        return image
-    new_w = int(image.width * zoom)
-    new_h = int(image.height * zoom)
-    return image.resize((new_w, new_h), Image.LANCZOS)
-
 # =========================================
 # VERIFICAR FUENTES
 # =========================================
 missing_fonts = ensure_fonts_exist()
 if missing_fonts:
     st.error(
-        "Faltan fuentes TTF en tu proyecto. Crea la carpeta fonts/ y agrega estos archivos:\n\n"
+        "Faltan fuentes TTF en tu proyecto. Agrega estos archivos dentro de la carpeta fonts/: \n\n"
         + "\n".join(missing_fonts)
     )
     st.stop()
@@ -272,9 +266,6 @@ with st.sidebar:
     threshold = st.slider("Umbral blanco/negro", min_value=50, max_value=250, value=180)
     invert_colors = st.checkbox("Invertir colores", value=False)
 
-    st.header("Vista previa web")
-    preview_zoom = st.slider("Zoom de vista previa", min_value=1.0, max_value=5.0, value=2.5, step=0.1)
-
 # =========================================
 # CARGA DE PLANTILLA
 # =========================================
@@ -309,7 +300,7 @@ label = template.copy()
 draw = ImageDraw.Draw(label)
 
 # =========================================
-# FUENTES ORIGINALES
+# FUENTES ESCALABLES ORIGINALES
 # =========================================
 size_big = scale_value(53, dpi, BASE_DPI)
 size_mid = scale_value(35, dpi, BASE_DPI)
@@ -388,12 +379,38 @@ barcode_dest = generate_barcode(
 # =========================================
 # PEGAR CÓDIGOS DE BARRAS
 # =========================================
-label = paste_barcode(label, barcode_top, x_bar_top, y_bar_top, w_bar_top, h_bar_top, angle=90)
-label = paste_barcode(label, barcode_side, x_bar_side, y_bar_side, w_bar_side, h_bar_side, angle=90)
-label = paste_barcode(label, barcode_dest, x_bar_dest, y_bar_dest, w_bar_dest, h_bar_dest, angle=0)
+label = paste_barcode(
+    label,
+    barcode_top,
+    x_bar_top,
+    y_bar_top,
+    w_bar_top,
+    h_bar_top,
+    angle=90,
+)
+
+label = paste_barcode(
+    label,
+    barcode_side,
+    x_bar_side,
+    y_bar_side,
+    w_bar_side,
+    h_bar_side,
+    angle=90,
+)
+
+label = paste_barcode(
+    label,
+    barcode_dest,
+    x_bar_dest,
+    y_bar_dest,
+    w_bar_dest,
+    h_bar_dest,
+    angle=0,
+)
 
 # =========================================
-# DIBUJO DE TEXTO ORIGINAL
+# DIBUJO DE TEXTO
 # =========================================
 label = draw_rotated_text(label, codigo_principal, (x_codigo_principal, y_codigo_principal), 0, font_big_bold)
 label = draw_rotated_text(label, producto, (x_producto, y_producto), 0, font_big_bold)
@@ -419,14 +436,7 @@ elif rotation_option == "180°":
 # VISTA PREVIA COLOR
 # =========================================
 st.subheader("Vista previa de la etiqueta")
-st.write(f"Resolución real de la etiqueta: {label.width} × {label.height} px")
-
-preview_label = make_preview_image(label, zoom=preview_zoom)
-st.image(
-    preview_label,
-    caption=f"Vista previa ampliada x{preview_zoom:.1f}",
-    use_container_width=False
-)
+st.image(label, use_container_width=True)
 
 # =========================================
 # CONVERSIÓN A ZPL
@@ -434,12 +444,7 @@ st.image(
 bw_img = convert_to_monochrome(label, threshold=threshold, invert=invert_colors)
 
 st.subheader("Vista previa 1-bit para Zebra")
-preview_bw = make_preview_image(bw_img.convert("RGB"), zoom=preview_zoom)
-st.image(
-    preview_bw,
-    caption=f"Vista previa Zebra ampliada x{preview_zoom:.1f}",
-    use_container_width=False
-)
+st.image(bw_img, use_container_width=True)
 
 final_width_px, final_height_px = bw_img.size
 
@@ -460,7 +465,7 @@ png_buffer.seek(0)
 
 pdf_buffer = export_to_pdf(label, label_width_mm, label_height_mm)
 
-# Descarga ZPL optimizada para móvil/Zebra
+# Descarga optimizada para móvil / Zebra
 zpl_bytes = zpl_code.encode("ascii", errors="ignore")
 
 col1, col2, col3 = st.columns(3)
